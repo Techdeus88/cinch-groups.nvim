@@ -37,6 +37,13 @@ H.write('lua/plugins/lsp/servers.lua', {
   "  { 'owner/dirparent', deps = { { 'owner/dirdep' } } },",
   '}',
 })
+-- No `group`: the file's name names it. `order` puts it before the rest, aaa_late after.
+H.write('lua/plugins/editor.lua', {
+  "return { event = 'InsertEnter', order = 10, { 'owner/pairs' }, 'owner/surround' }",
+})
+H.write('lua/plugins/solo.lua', { "return { 'owner/solo', cmd = 'Solo' }" })
+H.write('lua/plugins/aaa_late.lua', { "return { order = 150, { 'owner/late1' } }" })
+H.write('lua/plugins/badorder.lua', { "return { order = 'x', { 'owner/bo' } }" })
 H.write('lua/plugins/byname/x.lua', { "return { 'owner/named' }" })
 H.write('lua/plugins/zz.lua', {
   'return {',
@@ -48,9 +55,10 @@ H.write('lua/plugins/zz.lua', {
 })
 
 -- Nothing under lua/plugins/ installs: the files are only read, by a second collect below.
-require('cinch').setup({
+-- One bootstrap line: cinch-groups sets cinch up, with `groups` as the extension's options.
+require('cinch-groups').setup({
   confirm = false,
-  features = { 'messages', 'groups' },
+  features = { 'messages' },
   groups = {
     real = { cmd = 'AlphaCmd' },
     alt = { load = 'later', plugins = { 'line' } },
@@ -67,13 +75,16 @@ H.after_startup(function()
   local alpha = H.plugin('alpha.nvim')
   H.eq({ groups.of('alpha.nvim'), alpha.load, alpha.state }, { 'real', 'trigger', 'pending' }, 'waits for its command')
   H.eq(H.noted('unknown field `group`'), false, 'cinch knows the group field')
+  H.eq(require('cinch').extensions.groups, groups, 'it is the groups extension')
   vim.cmd('AlphaCmd')
   H.eq(alpha.state, 'loaded', 'which loads it')
 
   local spec, state = require('cinch.spec'), require('cinch.state')
-  spec.register(spec.collect({ 'plugins', { { group = 'inline', keys = '<leader>i', { 'owner/ina' } } } }, {
-    file = 'init.lua',
-  }))
+  spec.register(
+    spec.collect({ 'plugins', { { group = 'inline', keys = '<leader>i', { 'owner/ina' } }, { 'owner/loose' } } }, {
+      file = 'init.lua',
+    })
+  )
   ---@return any[] # group, load, and the fields asked for
   local function of(name, ...)
     local p = state.plugins[name]
@@ -98,7 +109,7 @@ H.after_startup(function()
   H.eq(of('nowins', 'event', 'ft'), { 'ins', 'now', 'nil', 'nil' }, "its own load takes none of the group's triggers")
   H.eq(H.noted('`nowins`'), false, 'and nothing warns')
   H.eq(of('two', 'cmd'), { 'cmds', 'trigger', 'Two' }, 'a file can hold several groups')
-  H.eq(of('plain'), { false, 'later' }, 'and plain specs beside them')
+  H.eq(of('plain'), { 'many', 'later' }, "and plain specs beside them, in the file's group")
   H.eq(of('bl'), { 'badload', 'later' }, 'an unknown load of a group is ignored')
   H.eq(H.noted('group `badload` has unknown load `soon`'), true, 'with a warning')
   H.eq(of('ina', 'keys'), { 'inline', 'trigger', '<leader>i' }, 'a group table works in inline specs')
@@ -119,4 +130,18 @@ H.after_startup(function()
   H.eq(H.noted('zz.lua: `signs` is already in group `git`; `cmds` is ignored'), true, 'and a second wrapper warns')
 
   H.eq(groups.members('cmds'), { 'two' }, 'members() lists a group by registration order')
+
+  H.eq(of('pairs', 'event'), { 'editor', 'trigger', 'InsertEnter' }, "a file's table with no group is named after it")
+  H.eq(of('surround', 'event'), { 'editor', 'trigger', 'InsertEnter' }, 'a string spec in it too')
+  H.eq(of('solo', 'cmd'), { 'solo', 'trigger', 'Solo' }, 'a file holding one spec is a group of one')
+  H.eq(of('loose'), { false, 'later' }, 'an inline spec is in no file group')
+  H.eq(of('opted'), { false, 'later' }, 'group = false leaves the file group too')
+  H.eq(of('bo'), { 'badorder', 'later' }, 'an order that is not a number is ignored')
+  H.eq(H.noted('group `badorder` has order `x`, not a number'), true, 'with a warning')
+  local at = {}
+  for i, p in ipairs(state.list) do
+    at[p.name] = i
+  end
+  H.eq(at.pairs < at.plain and at.plain < at.late1, true, 'lower order registers, so loads, first')
+  H.eq(at.surround < at.plain, true, 'the whole group moves')
 end)

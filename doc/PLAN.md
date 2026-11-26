@@ -1,5 +1,15 @@
 # cinch-groups: concept and plan
 
+## Status (2026-11-25)
+
+Done, with tests on cinch's runner:
+- **Core seams:** `Collect`, `Collected` and `spec.field(name, { trigger = false })` are in cinch (`247813c`); `doc/core-seams.patch` is history now.
+- **Hookup:** cinch's `extensions` option (installs, adopts and loads an extension before specs), with `require('cinch-groups').setup()` for a single bootstrap line. The old `features = { 'groups' }` route still works.
+- **Triggers:** `follows`, `delay`, `idle`, `visible`, `focus`, `root`, `path`, `lsp`, `mode`, `bt`, `on`, plus the `together` group field.
+- **Window:** the group chip, the `group`/`took` pane lines and `/group:`; the Groups tab before Triggers; `<C-g>` to list Plugins by group. cinch's ui has `add_view`, `add_key`, `add_hint`, `add_chip`, `add_pane_lines`, `add_filter` and `add_grouping` for it.
+
+Still open: the questions at the end of this file. Health checks are in (`:checkhealth cinch`, under extensions).
+
 ## Where it comes from
 
 The `groups` branch of cinch (commit 23366c3) built groups into core: about 190 lines in `spec.lua`, a `groups` option in `init.lua`, three fields on the plugin record in `state.lua`, and the README and help sections. It works, but every rule of groups became a rule of cinch's spec resolution, and the branch has since drifted from `main` (`main` reads spec files from `stdpath('config')` only and now merges trigger lists).
@@ -25,7 +35,7 @@ So a cinch extension is:
 
 | Seam | Where | What it allows |
 | --- | --- | --- |
-| `Collect { value, origin }` | `spec.push()`, before a value is split into specs | Replace what a spec file, inline root or `add()` gave. Groups spreads group tables here |
+| `Collect { value, origin, root? }` | `spec.push()`, before a value is split into specs | Replace what a spec file, inline root or `add()` gave. `root` is set only for a spec file, so an extension can tell a file from inline specs. Groups spreads group tables here, and names a file's group after the file |
 | `Collected { entries, origin }` | end of `spec.collect()`, before `register()` | See every entry of one read at once, and rewrite, add or drop them. Groups assigns members and copies strategy here |
 | `spec.field(name, { trigger = false })` | `spec.lua` | A field cinch keeps in `data` without warning, and that is not a trigger |
 
@@ -60,9 +70,14 @@ setup() ── load_features ── groups.setup(opts.groups) ── registry.fr
 - When a group's `load` overrides a plugin's triggers, the warning is cinch's own, which says the spec "sets load". The branch said the plugin "is in group `git` with load = `now`". See open questions.
 - `origin.index` counts the spread list, not the position inside the group table.
 
+## File groups and order (beyond the branch)
+
+- Every spec file's top-level table is a group. With no `group`, the file's name without `.lua` names it. This group ranks last, after `dir`, so `plugins` lists and `dir` folders still claim plugins from a plain list file.
+- `order` (number, default 100) on any group: `assign` sorts the entries of one read by their group's order, keeping read order between equals. cinch registers, and so loads, in that order: `handler.lua`'s `ordered()` and the `now` and `later` passes all follow `state.list`. No core change was needed.
+
 ## Phases
 
-1. **Spec groups (this skeleton, working).** Group tables, `setup()` groups with `plugins` and `dir`, precedence, warnings, `of`, `members`, `groups`, `load`. Case passes.
+1. **Spec groups (this skeleton, working).** Group tables, file groups, `order`, `setup()` groups with `plugins` and `dir`, precedence, warnings, `of`, `members`, `groups`, `load`. Case passes.
 2. **Land the seams in cinch.** Apply `doc/core-seams.patch`, add a `Collect`/`Collected` case to cinch's suite (rewrite, drop and add an entry), document both events in the README's event table and `doc/cinch.txt`. Drop the `groups` branch.
 3. **Group actions.** `:Cinch group load|update|disable <name>` as a subcommand. Needs a seam for subcommands (`usercmd`), so features can register one.
 4. **Groups in the window.** Group name on each row, or a Groups section on the Plugins view, through the `ui` feature. Needs a seam for rows or sections. Every new wording goes past you first.
@@ -74,4 +89,6 @@ setup() ── load_features ── groups.setup(opts.groups) ── registry.fr
 2. **Nested deps with their own `group`.** They never become entries, so `group = 'x'` on a nested dep does nothing. The branch did the same. Keep it, or walk `deps` in `assign`?
 3. **Feature namespace.** Shipping `lua/cinch/features/groups.lua` from another repo works today but puts a file in cinch's namespace. An alternative is letting `features` take a full module path, such as `'cinch-groups'`.
 4. **Bootstrapping.** Extensions must be on the runtimepath before `setup()`. Should cinch's `self` handling cover a list of extensions too, so one bootstrap installs and updates them all?
-5. **Repo.** This folder isn't a git repo yet. Init it, publish it as `techdeus88/cinch-groups.nvim`, or keep it in cinch as `extras/`?
+5. **File group names.** The base name collides across folders (`lsp/init.lua` and `ui/init.lua` are both `init`). Use the path under the root (`lsp/init`), or the folder name for an `init.lua`?
+6. **Order across reads.** `order` sorts within one read. A plugin from a later `add()` with order 1 still registers after everything `setup()` read. Fine, or should cinch's `ordered()` sort by a field instead of `state.list` position?
+7. **Repo.** This folder isn't a git repo yet. Init it, publish it as `techdeus88/cinch-groups.nvim`, or keep it in cinch as `extras/`?

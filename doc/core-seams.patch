@@ -1,20 +1,21 @@
 diff --git a/lua/cinch/events.lua b/lua/cinch/events.lua
-index a269362..c1948f5 100644
+index a269362..394147c 100644
 --- a/lua/cinch/events.lua
 +++ b/lua/cinch/events.lua
-@@ -15,6 +15,10 @@ local M = {}
+@@ -15,6 +15,11 @@ local M = {}
  -- here warns, so a typo never fails silently. Features add theirs with `define()`.
  ---@type table<string, true>
  M.names = {
-+  Collect = true, -- { value, origin }                  what a spec file, inline root or add() gave, before it is
-+  --                                                    split into specs; set value to replace it
++  Collect = true, -- { value, origin, root? }           what a spec file, inline root or add() gave, before it is
++  --                                                    split into specs; set value to replace it. root: the
++  --                                                    spec root of a file, nil for inline specs and add()
 +  Collected = true, -- { entries, origin }              every spec one read found, before any registers;
 +  --                                                    entries may be changed, added or removed
    Register = true, -- { plugin }                        a spec became a plugin record
    State = true, -- { plugin, from, to, reason }         every state change
    Activity = true, -- { plugin, from, to }              disk work on a plugin started or ended
 diff --git a/lua/cinch/spec.lua b/lua/cinch/spec.lua
-index 3050f05..a5acdb3 100644
+index 3050f05..b9081fb 100644
 --- a/lua/cinch/spec.lua
 +++ b/lua/cinch/spec.lua
 @@ -76,10 +76,13 @@ local aliases = { dependencies = 'deps' }
@@ -34,17 +35,29 @@ index 3050f05..a5acdb3 100644
  end
  
  --- `owner/repo` becomes a GitHub URL; anything else is a src as-is, a relative
-@@ -573,6 +576,9 @@ end
+@@ -572,7 +575,11 @@ end
+ ---@param out cinch.Entry[]
  ---@param value any a spec, a list of specs, or a src string
  ---@param origin cinch.Origin
- local function push(out, value, origin)
+-local function push(out, value, origin)
++---@param root? string the spec root a file came from; nil for inline specs and add()
++local function push(out, value, origin, root)
 +  if events.has('Collect') then
-+    value = events.emit('Collect', { value = value, origin = origin }).value
++    value = events.emit('Collect', { value = value, origin = origin, root = root }).value
 +  end
    if type(value) ~= 'table' and type(value) ~= 'string' then
      error(('%s: expected a spec or a list of specs'):format(origin.file), 0)
    end
-@@ -637,6 +643,9 @@ function M.collect(roots, origin)
+@@ -628,7 +635,7 @@ function M.collect(roots, origin)
+           ok, res = pcall(chunk)
+         end
+         if ok then
+-          ok, res = pcall(push, out, res, { file = file })
++          ok, res = pcall(push, out, res, { file = file }, root)
+         end
+         if not ok then
+           M.broken[#M.broken + 1] = file
+@@ -637,6 +644,9 @@ function M.collect(roots, origin)
        end
      end
    end

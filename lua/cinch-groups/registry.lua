@@ -16,15 +16,27 @@ local loads = { now = true, later = true, now_if_args = true, trigger = true }
 ---@field ft? string|string[]
 ---@field cmd? string|string[]
 ---@field keys? string|(string|cinch.Key)[]
+---@field order? number lower loads first, among plugins that load at the same moment; default 100
+---@field together? boolean one plugin of the group loading loads the rest with it
 ---@field plugins? string[] setup() only: plugin names in it
 ---@field dir? string|true setup() only: a folder under a spec root whose files are in it; true: its name
 
 ---@type table<string, table<string, any>> group -> its `load` and triggers
 M.groups = {}
+--- Where a plugin with no group, or in a group with no `order`, loads among the groups.
+M.default_order = 100
+---@type table<string, number> group -> its `order`: lower loads first
+M.order = {}
+---@type table<string, true> groups that load whole: one plugin loading brings the rest
+M.together = {}
 ---@type table<string, string> plugin name -> the setup() group whose `plugins` lists it
 M.listed = {}
 ---@type { dir: string, group: string }[] folders whose spec files are in a group, as `/lsp/`
 M.dirs = {}
+---@type table<string, string> group -> its `dir`, as written: `lsp/`
+M.dir_of = {}
+---@type table<string, string[]> group -> where it is defined: setup() and spec file names
+M.where = {}
 
 ---@param msg string
 local function warn(msg)
@@ -39,11 +51,24 @@ end
 function M.define(name, fields, where)
   local group = M.groups[name] or {}
   M.groups[name] = group
+  local shown = where == 'setup()' and where or vim.fs.basename(where)
+  M.where[name] = M.where[name] or {}
+  if not vim.list_contains(M.where[name], shown) then
+    table.insert(M.where[name], shown)
+  end
   local unknown = {}
   for k, v in pairs(fields) do
     if type(k) == 'string' and k ~= 'group' then
       if k == 'load' and not loads[v] then
         warn(('%s: group `%s` has unknown load `%s`; it is ignored'):format(where, name, tostring(v)))
+      elseif k == 'order' and type(v) ~= 'number' then
+        warn(('%s: group `%s` has order `%s`, not a number; it is ignored'):format(where, name, tostring(v)))
+      elseif k == 'order' then
+        M.order[name] = v
+      elseif k == 'together' and type(v) ~= 'boolean' then
+        warn(('%s: group `%s` has together `%s`, not true or false; it is ignored'):format(where, name, tostring(v)))
+      elseif k == 'together' then
+        M.together[name] = v or nil
       elseif k == 'load' or spec.triggers[k] then
         group[k] = v
       else
@@ -76,7 +101,9 @@ function M.from_setup(groups, where)
     end
     local dir = fields.dir == true and name or fields.dir
     if type(dir) == 'string' then
-      M.dirs[#M.dirs + 1] = { dir = '/' .. vim.trim(dir):gsub('^/+', ''):gsub('/+$', '') .. '/', group = name }
+      local clean = vim.trim(dir):gsub('^/+', ''):gsub('/+$', '')
+      M.dirs[#M.dirs + 1] = { dir = '/' .. clean .. '/', group = name }
+      M.dir_of[name] = clean .. '/'
     end
     fields.plugins, fields.dir = nil, nil
     M.define(name, fields, where)
