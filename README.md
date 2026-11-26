@@ -68,15 +68,17 @@ It needs a cinch with extensions and the `Collect` and `Collected` events.
 
 A plugin is in at most one group. The first of these that applies wins:
 
-1. Its spec says `group = 'name'`. `group = false` keeps it out of every group.
+1. Its spec says `group = 'name'`. A group nothing else defines is made, empty, by naming it. `group = false` keeps it out of every group.
 2. A group table wraps its spec.
 3. A group in `setup()` lists it in `plugins`.
 4. A group in `setup()` has a `dir` that holds its spec file. `dir = true` is a folder with the group's name.
 5. The file it is in, when that file's table names no group. The group takes the file's name without `.lua`: `lua/plugins/lsp/servers.lua` is `servers`. Two files with one name are one group.
 
+A file that returns a single spec is a group of one: the group its spec names, or else the file's name.
+
 Inline specs in `setup()` and specs given to `add()` have no file group.
 
-A spec nested in another plugin's `deps` is in no group because of where it is nested.
+A plugin seen only as another plugin's dependency, nested in `deps` at any depth, is in the group its own spec names, else in a `setup()` group whose `plugins` lists it, else in `dependencies`. Where it is nested doesn't count, and `group = false` keeps it out. A dependency that also has a spec of its own is a plugin like any other. `dependencies` has no strategy of its own, so its plugins still load when the plugins that need them do; give it one in `setup()` and they take it like any group's.
 
 ## Triggers
 

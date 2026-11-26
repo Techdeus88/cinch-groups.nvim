@@ -47,15 +47,16 @@ end
 --- are skipped, and so is `group`, its name.
 ---@param name string
 ---@param fields table
----@param where string the file it came from, for warnings
+---@param where? string the file it came from, for warnings; nil for one cinch-groups makes
 function M.define(name, fields, where)
   local group = M.groups[name] or {}
   M.groups[name] = group
-  local shown = where == 'setup()' and where or vim.fs.basename(where)
   M.where[name] = M.where[name] or {}
-  if not vim.list_contains(M.where[name], shown) then
+  local shown = where and (where == 'setup()' and where or vim.fs.basename(where))
+  if shown and not vim.list_contains(M.where[name], shown) then
     table.insert(M.where[name], shown)
   end
+  where = where or 'cinch-groups'
   local unknown = {}
   for k, v in pairs(fields) do
     if type(k) == 'string' and k ~= 'group' then

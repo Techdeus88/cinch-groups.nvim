@@ -24,6 +24,13 @@ local function is_group(v)
   return type(v) == 'table' and type(v.group) == 'string' and not is_single(v)
 end
 
+--- Whether one spec says its group itself: `group` at the top or in `data`, false too.
+---@param v string|table
+---@return boolean
+local function names_group(v)
+  return type(v) == 'table' and (v.group ~= nil or (type(v.data) == 'table' and v.data.group ~= nil))
+end
+
 ---@param v any
 ---@return boolean
 local function holds_group(v)
@@ -80,6 +87,9 @@ function M.expand(value, origin, root)
     local name = vim.fn.fnamemodify(origin.file, ':t:r')
     if type(value) == 'table' and not is_single(value) then
       registry.define(name, value, origin.file)
+    elseif names_group(value) then
+      -- One spec naming its own group: that one, not one named after the file.
+      return value
     else
       registry.define(name, {}, origin.file)
       value = { value }

@@ -9,7 +9,12 @@ require('cinch-groups').setup({
   features = { 'messages', 'ui' },
   spec = {
     {
-      { group = 'git', cmd = 'AlphaCmd', { H.src('alpha.nvim') }, { H.src('beta.nvim'), cmd = 'BetaGo' } },
+      {
+        group = 'git',
+        cmd = 'AlphaCmd',
+        { H.src('alpha.nvim'), deps = { H.src('opy') } },
+        { H.src('beta.nvim'), cmd = 'BetaGo' },
+      },
       { group = 'lsp', order = 10, ft = 'lua', { H.src('gamma') } },
       { H.src('delta.nvim') },
     },
@@ -53,11 +58,11 @@ H.after_startup(function()
   local ui = require('cinch.features.ui')
   ui.open('plugins')
   H.wait(function()
-    return line_of('alpha%.nvim') ~= nil
+    return line_of('alpha%.nvim.*AlphaCmd') ~= nil
   end, 'the plugins list')
   H.eq(H.header()[1]:find('plugins  groups  triggers', 1, true) ~= nil, true, 'Groups is the tab before Triggers')
 
-  local row = assert(line_of('alpha%.nvim'))
+  local row = assert(line_of('alpha%.nvim.*AlphaCmd'))
   H.eq(lines(ui.windows().list)[row]:find('\u{f247} git', 1, true) ~= nil, true, 'a row has its group chip')
   H.eq(lines(ui.windows().list)[assert(line_of('delta%.nvim'))]:find('\u{f247}', 1, true), nil, 'none in no group')
 
@@ -67,8 +72,11 @@ H.after_startup(function()
   cursor(assert(line_of('beta%.nvim')))
   H.eq(pane_has('took'), false, 'one whose own cmd replaces the group one took nothing')
 
+  cursor(assert(line_of('opy')))
+  H.eq(pane_has('group +dependencies · dependency'), true, 'a dependency is in dependencies')
+
   H.press('/group:lsp<CR>')
-  H.eq({ line_of('gamma') ~= nil, line_of('alpha%.nvim') }, { true, nil }, '/group:lsp shows only that group')
+  H.eq({ line_of('gamma') ~= nil, line_of('alpha%.nvim.*AlphaCmd') }, { true, nil }, '/group:lsp shows only that group')
   H.press('/<C-u><CR>')
 
   H.press('<C-g>')

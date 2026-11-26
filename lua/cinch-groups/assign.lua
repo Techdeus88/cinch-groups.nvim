@@ -11,7 +11,7 @@ local M = {}
 
 ---@type table<string, string> plugin name -> its group
 M.member = {}
----@alias cinch_groups.How 'own'|'wrap'|'listed'|'dir'|'file'
+---@alias cinch_groups.How 'own'|'wrap'|'listed'|'dir'|'file'|'dep'
 ---@type table<string, { how: cinch_groups.How, file?: string }> plugin name -> how it joined
 M.how = {}
 ---@type table<string, table<string, any>> plugin name -> the fields it took from its group
@@ -21,31 +21,43 @@ M.took = {}
 ---@field e cinch.Entry
 ---@field data table its normalized data, read only
 
+-- The group of plugins seen only as another plugin's dependency.
+M.DEPS = 'dependencies'
+
 ---@param msg string
 local function warn(msg)
   events.report(msg, vim.log.levels.WARN)
 end
 
---- The group a plugin is in: the one its spec names, else the one that wraps it, lists
---- it or holds its file. `group = false` leaves it out.
+--- A group by name, made empty when nothing defines it yet: naming one is enough.
+---@param name string
+---@param where? string the file that named it
+local function ensure(name, where)
+  if not registry.groups[name] then
+    registry.define(name, {}, where)
+  end
+end
+
+--- The group a plugin is in: the one its spec names, made if nothing else defines it,
+--- else the one that wraps it, lists it or holds its file. `group = false` leaves it out.
 ---@param name string
 ---@param items cinch_groups.Item[]
 ---@return string? group
 ---@return { how: cinch_groups.How, file?: string }? how it joined
 local function group_of(name, items)
-  local own
+  local own, named_in
   for _, it in ipairs(items) do
     if it.data.group ~= nil then
-      own = it.data.group
+      own, named_in = it.data.group, it.e.origin.file
     end
   end
   if own == false then
     return
+  elseif type(own) == 'string' and own ~= '' then
+    ensure(own, named_in)
+    return own, { how = 'own' }
   elseif own ~= nil then
-    if registry.groups[own] then
-      return own, { how = 'own' }
-    end
-    warn(('`%s` names group `%s`, which nothing defines; it is ignored'):format(name, tostring(own)))
+    warn(('`%s` has group `%s`, not a name or false; it is ignored'):format(name, tostring(own)))
   end
   local wrap
   for _, it in ipairs(items) do
@@ -124,6 +136,86 @@ local function share(items, group)
   return took
 end
 
+---@param d any
+---@return boolean
+local function is_ref(d)
+  return type(d) == 'string' and not d:find('/') and not d:find(':')
+end
+
+--- Every spec nested in `deps`, at any depth, by name, in the order they are found.
+---@param entries cinch.Entry[]
+---@return table<string, { specs: vim.pack.Spec[], origin: cinch.Origin }>, string[]
+local function nested(entries)
+  local found, order = {}, {}
+  local function walk(data, origin)
+    for _, d in ipairs(data.deps or {}) do
+      local n = not is_ref(d) and spec.normalize(d)
+      local name = n and spec.name(n)
+      if name and name ~= '' then
+        if not found[name] then
+          found[name], order[#order + 1] = { specs = {}, origin = origin }, name
+        end
+        table.insert(found[name].specs, n)
+        walk(n.data, origin)
+      end
+    end
+  end
+  for _, e in ipairs(entries) do
+    local n = spec.normalize(e.spec)
+    if n then
+      walk(n.data, e.origin)
+    end
+  end
+  return found, order
+end
+
+--- Put each plugin seen only as a dependency in the group its own spec names, else the
+--- one a setup() group lists it in, else `dependencies`. Where it is nested does not
+--- count. A group with a strategy gets a spec of the plugin's own to carry it, added to
+--- `entries`, since a nested spec has no place to.
+---@param entries cinch.Entry[]
+---@param by_name table<string, cinch_groups.Item[]>
+---@param key table<cinch.Entry, number>
+local function dependencies(entries, by_name, key)
+  local state = require('cinch.state')
+  local found, order = nested(entries)
+  for _, name in ipairs(order) do
+    local p = state.plugins[name]
+    if not by_name[name] and not (p and not p.dep_only) then
+      local own
+      for _, n in ipairs(found[name].specs) do
+        if n.data.group ~= nil then
+          own = n.data.group
+        end
+      end
+      local group, how
+      if type(own) == 'string' and own ~= '' then
+        ensure(own, found[name].origin.file)
+        group, how = own, { how = 'own' }
+      elseif own ~= false and registry.listed[name] then
+        group, how = registry.listed[name], { how = 'listed' }
+      elseif own ~= false then
+        ensure(M.DEPS)
+        group, how = M.DEPS, { how = 'dep' }
+      end
+      if group then
+        M.member[name], M.how[name] = group, how
+        local first = found[name].specs[1]
+        local e = { spec = { src = first.src, name = first.name }, origin = found[name].origin }
+        local items = { { e = e, data = {} } }
+        for _, n in ipairs(found[name].specs) do
+          items[#items + 1] = { e = e, data = n.data }
+        end
+        M.took[name] = share(items, group)
+        if next(M.took[name]) then
+          entries[#entries + 1] = e
+          key[e] = registry.order[group]
+        end
+      end
+    end
+  end
+end
+
 --- The Collected payload's entries, each plugin given its group's strategy.
 ---@param entries cinch.Entry[]
 ---@return cinch.Entry[]
@@ -152,6 +244,7 @@ function M.assign(entries)
       end
     end
   end
+  dependencies(entries, by_name, key)
   return by_order(entries, key)
 end
 

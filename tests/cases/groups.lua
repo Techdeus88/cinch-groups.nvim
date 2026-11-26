@@ -45,6 +45,16 @@ H.write('lua/plugins/solo.lua', { "return { 'owner/solo', cmd = 'Solo' }" })
 H.write('lua/plugins/aaa_late.lua', { "return { order = 150, { 'owner/late1' } }" })
 H.write('lua/plugins/badorder.lua', { "return { order = 'x', { 'owner/bo' } }" })
 H.write('lua/plugins/byname/x.lua', { "return { 'owner/named' }" })
+-- One spec naming a group nothing else defines: that group, made for it, not `solo2`.
+H.write('lua/plugins/solo2.lua', { "return { 'owner/solo2', group = 'tools' }" })
+-- Plugins seen only as dependencies, and one that is also a plugin of its own.
+H.write('lua/plugins/deps.lua', {
+  'return {',
+  "  { 'owner/p1', deps = { { 'owner/ownd', group = 'git' }, { 'owner/nod', group = false }, 'owner/lsdep' } },",
+  "  { 'owner/p2', deps = { 'owner/both', { 'owner/deep', deps = { 'owner/deeper' } } } },",
+  "  { 'owner/both' },",
+  '}',
+})
 H.write('lua/plugins/zz.lua', {
   'return {',
   "  { 'owner/cmp', cmd = 'Cmp' },",
@@ -61,7 +71,7 @@ require('cinch-groups').setup({
   features = { 'messages' },
   groups = {
     real = { cmd = 'AlphaCmd' },
-    alt = { load = 'later', plugins = { 'line' } },
+    alt = { load = 'later', plugins = { 'line', 'lsdep' } },
     byname = { cmd = 'ByName', dir = true },
     ins = { ft = 'markdown' },
     lsp = { ft = { 'lua' }, dir = 'lsp', other = true },
@@ -100,7 +110,7 @@ H.after_startup(function()
   H.eq(of('signs'), { 'git', 'now' }, 'a group defined in two files is one: the later load wins')
   H.eq(H.noted('git2.lua: group `git` has unknown field `bogus`'), true, 'an unknown field of a group warns')
   H.eq(of('diff', 'cmd'), { 'git', 'now', 'Diff' }, "a group's load is explicit: it wins over a trigger")
-  H.eq(of('wrapdep'), { false, 'trigger' }, 'a nested dependency is not in the group that wraps its parent')
+  H.eq(of('wrapdep'), { 'dependencies', 'trigger' }, 'a nested dependency is in dependencies, not its parent group')
 
   H.eq(of('cmp', 'event', 'ft', 'cmd'), { 'ins', 'trigger', 'InsertEnter', 'markdown', 'Cmp' }, 'setup and file merge')
   H.eq(of('snip', 'event', 'cmd'), { 'ins', 'trigger', 'InsertEnter', 'Snip' }, "its own trigger beside the group's")
@@ -119,9 +129,9 @@ H.after_startup(function()
   H.eq(of('named', 'cmd'), { 'byname', 'trigger', 'ByName' }, "dir = true is the group's own name")
   H.eq(of('fielded', 'event'), { 'ui', 'trigger', 'UIEnter' }, "a spec's group field beats the folder")
   H.eq(of('opted'), { false, 'later' }, 'group = false leaves it')
-  H.eq(of('ghost')[1], 'lsp', 'a group nothing defines is ignored')
-  H.eq(H.noted('`ghost` names group `nope`, which nothing defines'), true, 'with a warning')
-  H.eq(of('dirdep'), { false, 'trigger' }, "a nested dependency is not in its file's group")
+  H.eq(of('ghost')[1], 'nope', 'naming a group nothing defines makes it')
+  H.eq(H.noted('`ghost`'), false, 'without a warning')
+  H.eq(of('dirdep'), { 'dependencies', 'trigger' }, "a nested dependency is not in its file's group")
 
   H.eq(of('tabs', 'event'), { 'ui', 'trigger', 'UIEnter' }, 'a plugin listed by a setup group is in it')
   H.eq(of('line'), { 'alt', 'later' }, 'listed twice, the first group by name has it')
@@ -130,6 +140,16 @@ H.after_startup(function()
   H.eq(H.noted('zz.lua: `signs` is already in group `git`; `cmds` is ignored'), true, 'and a second wrapper warns')
 
   H.eq(groups.members('cmds'), { 'two' }, 'members() lists a group by registration order')
+
+  local reg = require('cinch-groups.registry')
+  H.eq(of('solo2')[1], 'tools', 'a single spec in a file is in the group it names')
+  H.eq(reg.groups.solo2, nil, 'and no group is made after its file')
+  H.eq(of('ownd'), { 'git', 'now' }, 'a dependency naming a group is in it, and takes its load')
+  H.eq(of('nod'), { false, 'trigger' }, 'group = false keeps a dependency out of dependencies')
+  H.eq(of('lsdep'), { 'alt', 'later' }, 'a setup() group listing a dependency has it')
+  H.eq({ of('deep')[1], of('deeper')[1] }, { 'dependencies', 'dependencies' }, 'at any depth')
+  H.eq(of('both')[1], 'deps', 'a dependency with a spec of its own is a plugin, in its file group')
+  H.eq(require('cinch.state').plugins.deep.dep_only, true, 'dependencies stay dependencies to cinch')
 
   H.eq(of('pairs', 'event'), { 'editor', 'trigger', 'InsertEnter' }, "a file's table with no group is named after it")
   H.eq(of('surround', 'event'), { 'editor', 'trigger', 'InsertEnter' }, 'a string spec in it too')

@@ -104,6 +104,8 @@ local function joined(how)
     return 'listed in setup()'
   elseif how.how == 'dir' then
     return 'dir ' .. how.file
+  elseif how.how == 'dep' then
+    return 'dependency'
   end
   return 'its spec names it'
 end
@@ -253,7 +255,9 @@ local function pane(id, width, ctx)
     if reg.together[name] then
       kv('together', { { 'yes' } })
     end
-    kv('defined', { { table.concat(reg.where[name] or {}, ', ') } })
+    if #(reg.where[name] or {}) > 0 then
+      kv('defined', { { table.concat(reg.where[name], ', ') } })
+    end
   end
   for i, p in ipairs(ps) do
     local m, m_hl = rows.mark(p, ctx.tick)
