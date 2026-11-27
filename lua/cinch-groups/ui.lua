@@ -6,7 +6,6 @@
 local M = {}
 
 local GROUP_ICON = '\u{f247}'
-local NONE = '' -- the key of the plugins in no group
 
 ---@return table
 local function groups()
@@ -115,9 +114,6 @@ end
 local function ordered(names)
   local reg = registry()
   table.sort(names, function(a, b)
-    if a == NONE or b == NONE then
-      return b == NONE and a ~= NONE
-    end
     local x, y = reg.order[a] or reg.default_order, reg.order[b] or reg.default_order
     if x ~= y then
       return x < y
@@ -138,12 +134,25 @@ local function count(list)
   return n, #list
 end
 
---- The plugins of each group, and of none, in declaration order.
+--- A plugin's group. Every plugin has one; one cinch-groups never saw, registered before
+--- it started say, is in the group of the file its spec is in.
+---@param p cinch.Plugin
+---@return string
+local function group_of(p)
+  local g = groups().of(p.name)
+  if g then
+    return g
+  end
+  local file = p.origin and p.origin.file
+  return file and vim.fn.fnamemodify(file, ':t:r') or assign().DEPS
+end
+
+--- The plugins of each group, in declaration order. cinch and its extensions are not yours.
 ---@return table<string, cinch.Plugin[]>
 local function by_group()
   local out = {}
   for _, p in ipairs(require('cinch.state').yours()) do
-    local g = groups().of(p.name) or NONE
+    local g = group_of(p)
     out[g] = out[g] or {}
     table.insert(out[g], p)
   end
@@ -161,8 +170,7 @@ local ID = 'group:' -- a group row's id, before its name
 ---@param name string
 ---@param list cinch.Plugin[]
 ---@param slowest number
----@param open boolean
-local function group_row(c, name, list, slowest, open)
+local function group_row(c, name, list, slowest)
   local canvas, rows = require('cinch.features.ui.canvas'), require('cinch.features.ui.rows')
   local loaded, total = count(list)
   local light = loaded == total and total > 0 and '●' or loaded > 0 and '◐' or '○'
@@ -172,21 +180,16 @@ local function group_row(c, name, list, slowest, open)
     ms = ms + (rows.load_ms(p) or 0)
   end
   local reg = registry()
-  local items = {}
-  if name == NONE then
-    items[1] = { { (open and ' ▾ ' or ' ▸ ') .. 'no group', 'CinchSection' } }
-  else
-    items[1] = { { ' ' .. light, light_hl } }
-    items[2] = { { name, 'CinchName' } }
-    items[3] = { { tostring(reg.order[name] or reg.default_order), 'CinchMuted' } }
-  end
+  local items = {
+    { { ' ' .. light, light_hl } },
+    { { name, 'CinchName' } },
+    { { tostring(reg.order[name] or reg.default_order), 'CinchMuted' } },
+  }
   if ms > 0 then
     items[#items + 1] = { { '(' .. canvas.ms(ms) .. ')', 'CinchMuted' } }
     items[#items + 1] = canvas.pill(ms, slowest, 6)
   end
-  if name ~= NONE then
-    items[#items + 1] = strategy(reg.groups[name] or {})
-  end
+  items[#items + 1] = strategy(reg.groups[name] or {})
   items[#items + 1] = { { ('%d/%d'):format(loaded, total), 'CinchMuted' } }
   c:add(canvas.clip(rows.join(items), c.width - 1), { plugin = ID .. name, section = ID .. name })
 end
@@ -210,10 +213,10 @@ local function list(width, ctx)
   local needed = rows.dependents()
   for _, name in ipairs(ordered(vim.tbl_keys(all))) do
     local ps = all[name]
-    if name ~= NONE or #ps > 0 then
+    if #ps > 0 then
       -- Shut until opened: the fold key marks a group open.
       local open = ctx.folded[ID .. name] == true
-      group_row(c, name, ps, slowest, open)
+      group_row(c, name, ps, slowest)
       for _, p in ipairs(open and ps or {}) do
         local m, m_hl = rows.mark(p, ctx.tick)
         rows.add_row(c, p, {
@@ -247,17 +250,15 @@ local function pane(id, width, ctx)
   end
   local ps = by_group()[name] or {}
   local reg = registry()
-  c:add({ { ' ' .. (name == NONE and 'no group' or name), 'CinchTitle' } })
+  c:add({ { ' ' .. name, 'CinchTitle' } })
   c:add({ { ' ' .. ('─'):rep(c.width - 2), 'CinchRule' } })
-  if name ~= NONE then
-    kv('order', { { tostring(reg.order[name] or reg.default_order) } })
-    kv('load', strategy(reg.groups[name] or {}))
-    if reg.together[name] then
-      kv('together', { { 'yes' } })
-    end
-    if #(reg.where[name] or {}) > 0 then
-      kv('defined', { { table.concat(reg.where[name], ', ') } })
-    end
+  kv('order', { { tostring(reg.order[name] or reg.default_order) } })
+  kv('load', strategy(reg.groups[name] or {}))
+  if reg.together[name] then
+    kv('together', { { 'yes' } })
+  end
+  if #(reg.where[name] or {}) > 0 then
+    kv('defined', { { table.concat(reg.where[name], ', ') } })
   end
   for i, p in ipairs(ps) do
     local m, m_hl = rows.mark(p, ctx.tick)
@@ -275,10 +276,7 @@ end
 ---@param id string?
 local function load(id)
   if id and vim.startswith(id, ID) then
-    local name = id:sub(#ID + 1)
-    if name ~= NONE then
-      groups().load(name)
-    end
+    groups().load(id:sub(#ID + 1))
   elseif id then
     require('cinch').load({ id })
   end
@@ -320,21 +318,12 @@ end
 
 ---@type cinch.ui.Grouping
 local grouping = {
-  of = function(p)
-    return groups().of(p.name) or NONE
-  end,
+  of = group_of,
   order = ordered,
   title = function(name, ps)
     local loaded, total = count(ps)
-    local out = {
-      { name == NONE and 'no group' or name, 'CinchSection' },
-      { (' %d/%d'):format(loaded, total), 'CinchMuted' },
-    }
-    if name ~= NONE then
-      out[#out + 1] = { '  ' }
-      vim.list_extend(out, strategy(registry().groups[name] or {}))
-    end
-    return out
+    local out = { { name, 'CinchSection' }, { (' %d/%d'):format(loaded, total), 'CinchMuted' }, { '  ' } }
+    return vim.list_extend(out, strategy(registry().groups[name] or {}))
   end,
 }
 
@@ -364,18 +353,7 @@ function M.setup(ui)
     return groups().of(p.name) == value
   end)
 
-  ui.add_view('groups', {
-    list = list,
-    pane = pane,
-    hints = {
-      { 'l', 'load group' },
-      { 'u', 'update group' },
-      { '<CR>', 'fold' },
-      { '<Tab>', 'next view' },
-      { '?', 'keys' },
-      { 'q', 'close' },
-    },
-  }, { before = 'triggers' })
+  ui.add_view('groups', { list = list, pane = pane }, { before = 'triggers' })
   ui.add_key({ lhs = { 'l' }, view = 'groups', desc = 'load', run = load })
   ui.add_key({ lhs = { 'u' }, view = 'groups', desc = 'update', run = update })
 
@@ -388,9 +366,6 @@ function M.setup(ui)
       ctx.grouping = not ctx.grouping and 'groups' or nil
     end,
   })
-  ui.add_hint('plugins', function(ctx)
-    return { '<C-g>', ctx.grouping and 'by state' or 'by group' }
-  end)
 end
 
 return M

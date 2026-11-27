@@ -9,6 +9,12 @@ local CINCH = 'https://github.com/techdeus88/cinch.nvim'
 
 local started = false
 
+-- This file, and the one that called setup(): cinch takes inline specs as written where
+-- its setup() is called, which through setup() here is this file.
+local SELF = debug.getinfo(1, 'S').source:gsub('^@', '')
+---@type string?
+local called_from
+
 --- Start listening. cinch calls this as the `groups` extension, with `extensions.groups`.
 ---@param groups? table<string, cinch.Group>
 function M.start(groups)
@@ -27,7 +33,10 @@ function M.start(groups)
   require('cinch-groups.triggers').register()
   require('cinch-groups.registry').from_setup(groups or {}, 'setup()')
   events.on('Collect', function(d)
-    d.value = expand.expand(d.value, d.origin, d.root)
+    if called_from and d.origin.file == SELF then
+      d.origin.file = called_from
+    end
+    d.value = expand.expand(d.value, d.origin)
   end)
   events.on('Collected', function(d)
     d.entries = assign.assign(d.entries)
@@ -43,6 +52,8 @@ end
 --- calls its setup() with `groups` as the `groups` extension's options.
 ---@param opts? cinch.Opts|{ groups?: table<string, cinch.Group> }
 function M.setup(opts)
+  local info = debug.getinfo(2, 'S')
+  called_from = info and info.source:gsub('^@', '') or nil
   opts = vim.tbl_extend('force', {}, opts or {})
   if not pcall(require, 'cinch') then
     if vim.uv.fs_stat(vim.fn.stdpath('data') .. '/site/pack/core/opt/cinch.nvim') then

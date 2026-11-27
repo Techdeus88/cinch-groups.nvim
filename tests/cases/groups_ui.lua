@@ -53,7 +53,7 @@ local function cursor(line)
 end
 
 H.after_startup(function()
-  -- Room for every hint: a narrow footer drops the last ones.
+  -- Wide enough that no row is cut.
   vim.o.columns = 240
   local ui = require('cinch.features.ui')
   ui.open('plugins')
@@ -64,7 +64,8 @@ H.after_startup(function()
 
   local row = assert(line_of('alpha%.nvim.*AlphaCmd'))
   H.eq(lines(ui.windows().list)[row]:find('\u{f247} git', 1, true) ~= nil, true, 'a row has its group chip')
-  H.eq(lines(ui.windows().list)[assert(line_of('delta%.nvim'))]:find('\u{f247}', 1, true), nil, 'none in no group')
+  local delta = lines(ui.windows().list)[assert(line_of('delta%.nvim'))]
+  H.eq(delta:find('\u{f247} [%w_]*groups_ui') ~= nil, true, "an inline spec's chip is its file's group")
 
   cursor(row)
   H.eq(pane_has('group +git · wraps its spec'), true, 'the pane says its group and how it joined')
@@ -82,9 +83,14 @@ H.after_startup(function()
   H.press('<C-g>')
   H.eq(line_of('▾ lsp 0/1') ~= nil, true, '<C-g> lists the plugins by group')
   H.eq(line_of('lsp 0/1') < assert(line_of('git 0/2')), true, 'groups in order')
-  H.eq(line_of('no group 1/1') ~= nil, true, 'with the rest under no group')
-  local footer = table.concat(lines(ui.windows().footer), '\n')
-  H.eq(footer:find('by state', 1, true) ~= nil, true, 'the footer says how to switch back')
+  H.eq(
+    { line_of('groups_ui 1/1') ~= nil, line_of('no group') },
+    { true, nil },
+    'every plugin in a group, none in no group'
+  )
+  H.press('?')
+  H.eq(line_of('<C%-g>.*list by group or by state') ~= nil, true, 'the ? screen has the key')
+  H.press('?')
   H.press('<C-g>')
   H.eq(line_of('▾ lsp'), nil, 'and <C-g> again lists them by state')
 
@@ -95,8 +101,6 @@ H.after_startup(function()
   H.eq(line_of('○ lsp 10') < git, true, 'in order')
   cursor(git)
   H.eq({ pane_has('order +100'), pane_has('alpha%.nvim +wraps its spec') }, { true, true }, 'its pane')
-  footer = table.concat(lines(ui.windows().footer), '\n')
-  H.eq(footer:find('load group', 1, true) ~= nil, true, 'its keys in the footer')
 
   H.press('<CR>')
   H.eq(line_of('beta%.nvim') ~= nil, true, '<CR> opens a group')

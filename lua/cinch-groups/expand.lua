@@ -1,6 +1,7 @@
 -- Collect: a group table, `{ group = 'git', event = ..., { spec }, { spec } }`, becomes
--- its specs, each one marked with the group that wraps it. A spec file's top-level table
--- is a group too: with no `group`, the file's name names it. cinch then reads a plain list.
+-- its specs, each one marked with the group that wraps it. What a file returns is a group
+-- too, and so are inline specs and add()'s: with no `group`, the name of the file they
+-- come from names it, so every plugin is in one. cinch then reads a plain list.
 
 local registry = require('cinch-groups.registry')
 
@@ -24,11 +25,18 @@ local function is_group(v)
   return type(v) == 'table' and type(v.group) == 'string' and not is_single(v)
 end
 
---- Whether one spec says its group itself: `group` at the top or in `data`, false too.
+--- Whether one spec names its group itself: `group` at the top or in `data`.
 ---@param v string|table
 ---@return boolean
 local function names_group(v)
-  return type(v) == 'table' and (v.group ~= nil or (type(v.data) == 'table' and v.data.group ~= nil))
+  if type(v) ~= 'table' then
+    return false
+  end
+  local g = v.group
+  if g == nil and type(v.data) == 'table' then
+    g = v.data.group
+  end
+  return type(g) == 'string' and g ~= ''
 end
 
 ---@param v any
@@ -72,18 +80,17 @@ local function walk(list, group, marks, where, out)
   end
 end
 
---- The Collect payload's value with every group table spread into its specs. `root` is
---- set when the value is a whole spec file: its top-level table is then a group.
+--- The Collect payload's value with every group table spread into its specs. The value
+--- itself is a group, named by `group` or by the file it comes from.
 ---@param value any
 ---@param origin cinch.Origin
----@param root? string
 ---@return any
-function M.expand(value, origin, root)
+function M.expand(value, origin)
   if type(value) ~= 'table' and type(value) ~= 'string' then
     return value
   end
   local out = {}
-  if root and not is_group(value) then
+  if origin.file and not is_group(value) then
     local name = vim.fn.fnamemodify(origin.file, ':t:r')
     if type(value) == 'table' and not is_single(value) then
       registry.define(name, value, origin.file)

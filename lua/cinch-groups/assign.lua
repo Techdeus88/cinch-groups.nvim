@@ -39,7 +39,8 @@ local function ensure(name, where)
 end
 
 --- The group a plugin is in: the one its spec names, made if nothing else defines it,
---- else the one that wraps it, lists it or holds its file. `group = false` leaves it out.
+--- else the one that wraps it, lists it, or holds its file, or its file's: every plugin
+--- has one.
 ---@param name string
 ---@param items cinch_groups.Item[]
 ---@return string? group
@@ -51,13 +52,11 @@ local function group_of(name, items)
       own, named_in = it.data.group, it.e.origin.file
     end
   end
-  if own == false then
-    return
-  elseif type(own) == 'string' and own ~= '' then
+  if type(own) == 'string' and own ~= '' then
     ensure(own, named_in)
     return own, { how = 'own' }
   elseif own ~= nil then
-    warn(('`%s` has group `%s`, not a name or false; it is ignored'):format(name, tostring(own)))
+    warn(('`%s` has group `%s`, not a name; it is ignored'):format(name, tostring(own)))
   end
   local wrap
   for _, it in ipairs(items) do
@@ -192,25 +191,26 @@ local function dependencies(entries, by_name, key)
       if type(own) == 'string' and own ~= '' then
         ensure(own, found[name].origin.file)
         group, how = own, { how = 'own' }
-      elseif own ~= false and registry.listed[name] then
+      elseif registry.listed[name] then
         group, how = registry.listed[name], { how = 'listed' }
-      elseif own ~= false then
+      else
+        if own ~= nil then
+          warn(('`%s` has group `%s`, not a name; it is ignored'):format(name, tostring(own)))
+        end
         ensure(M.DEPS)
         group, how = M.DEPS, { how = 'dep' }
       end
-      if group then
-        M.member[name], M.how[name] = group, how
-        local first = found[name].specs[1]
-        local e = { spec = { src = first.src, name = first.name }, origin = found[name].origin }
-        local items = { { e = e, data = {} } }
-        for _, n in ipairs(found[name].specs) do
-          items[#items + 1] = { e = e, data = n.data }
-        end
-        M.took[name] = share(items, group)
-        if next(M.took[name]) then
-          entries[#entries + 1] = e
-          key[e] = registry.order[group]
-        end
+      M.member[name], M.how[name] = group, how
+      local first = found[name].specs[1]
+      local e = { spec = { src = first.src, name = first.name }, origin = found[name].origin }
+      local items = { { e = e, data = {} } }
+      for _, n in ipairs(found[name].specs) do
+        items[#items + 1] = { e = e, data = n.data }
+      end
+      M.took[name] = share(items, group)
+      if next(M.took[name]) then
+        entries[#entries + 1] = e
+        key[e] = registry.order[group]
       end
     end
   end

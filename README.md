@@ -66,9 +66,9 @@ It needs a cinch with extensions and the `Collect` and `Collected` events.
 
 ## Who is in a group
 
-A plugin is in at most one group. The first of these that applies wins:
+Every plugin is in exactly one group. The first of these that applies wins:
 
-1. Its spec says `group = 'name'`. A group nothing else defines is made, empty, by naming it. `group = false` keeps it out of every group.
+1. Its spec says `group = 'name'`. A group nothing else defines is made, empty, by naming it. A value that isn't a name, `false` say, is reported and ignored.
 2. A group table wraps its spec.
 3. A group in `setup()` lists it in `plugins`.
 4. A group in `setup()` has a `dir` that holds its spec file. `dir = true` is a folder with the group's name.
@@ -76,9 +76,9 @@ A plugin is in at most one group. The first of these that applies wins:
 
 A file that returns a single spec is a group of one: the group its spec names, or else the file's name.
 
-Inline specs in `setup()` and specs given to `add()` have no file group.
+Inline specs in `setup()` and specs given to `add()` are in the group of the file they're written in: `init` for your `init.lua`.
 
-A plugin seen only as another plugin's dependency, nested in `deps` at any depth, is in the group its own spec names, else in a `setup()` group whose `plugins` lists it, else in `dependencies`. Where it is nested doesn't count, and `group = false` keeps it out. A dependency that also has a spec of its own is a plugin like any other. `dependencies` has no strategy of its own, so its plugins still load when the plugins that need them do; give it one in `setup()` and they take it like any group's.
+A plugin seen only as another plugin's dependency, nested in `deps` at any depth, is in the group its own spec names, else in a `setup()` group whose `plugins` lists it, else in `dependencies`. Where it is nested doesn't count. A dependency that also has a spec of its own is a plugin like any other. `dependencies` has no strategy of its own, so its plugins still load when the plugins that need them do; give it one in `setup()` and they take it like any group's.
 
 ## Triggers
 
@@ -125,6 +125,8 @@ One name is one group. Defined in `setup()` and in files, its fields merge in th
 With cinch's `ui` feature on:
 
 - **Plugins:** each row has a chip with its group, and the pane has a `group` line (the group, and how the plugin joined it) and a `took` line (what it took from the group). `/group:git` shows one group. `<C-g>` lists the plugins by group instead of by state; `working` and Updates keep their sections.
+cinch-groups itself isn't one of your plugins: like cinch, it's kept by cinch, so it has no row in Plugins or Groups, only one in Updates when it has an update.
+
 - **Groups:** a tab before Triggers, one row per group in `order`. Each row shows a light (● all loaded, ◐ some, ○ none), the order, load time, strategy, and how many have loaded. The pane shows its order, strategy, where it's defined, and each plugin with how it joined. `<CR>` opens a group to its plugins, `l` loads it, and `u` asks to update its plugins that have updates, on their rows in Plugins.
 
 An icon of your own goes in cinch's `ui = { icons = { group = '...' } }`.
